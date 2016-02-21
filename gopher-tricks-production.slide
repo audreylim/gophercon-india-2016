@@ -1,0 +1,312 @@
+Gopher Tricks In Production
+GopherCon India
+18 Feb 2016
+
+Audrey Lim  
+Software Engineer, Nitrous.IO
+audreylh@gmail.com
+
+Twitter @AudreyLim77
+GitHub @audreylim
+
+* Audrey Lim 
+
+- Lawyer-turned-programmer
+- Learned Go in 2014 ([[https://www.youtube.com/watch?v=fZh8uCInEfw&list=PL2ntRZ1ySWBf-_z-gHCOR2N156Nw930Hm&index=13][GopherCon 2015]])
+- Software Engineer @Nitrous.IO
+- Singapore -> San Francisco
+
+* Aim
+
+Go’s simplicity belies some powerful features
+
+Show how some of Go’s unique features can be applied effectively in production
+
+* Go Features
+
+- Interfaces
+- Methods
+- First-class functions
+- Defer statement
+- Go's package ecosystem
+- Go's standard library
+
+* Redacting Data
+
+* Redacting Data
+
+- Hide sensitive data in server logs
+
+- String() Method
+
+“If an operand implements method String() string, that method will be invoked to convert the object to a string, which will then be formatted as required by the verb (if any).”
+.link https://golang.org/pkg/fmt/
+
+* Redacting Data
+
+Config data
+
+  type Config struct {
+    Env       string
+    AccessKey string // secret
+    SecretKey string // secret
+    …
+  }
+
+Declare `String()` method on `Config` to automatically redact data
+
+  func (c *Config) String() string {
+    type c2 Config
+    cs := c2(*c) // avoid recursion
+    cs.AccessKey = “(REDACTED)”
+    cs.SecretKey = “(REDACTED)”
+    return fmt.Sprintf(“%+v”, cs)
+  }
+
+Reassign Config object to avoid infinite recursion (see note in [[https://golang.org/pkg/fmt]])
+
+* Redacting Data (demo)
+
+.play code/redact_data.go /BEGIN/,/END/
+
+* Environment Variables
+
+* Environment Variables
+
+Example of Go's approach to modularity and code reusability - packages
+
+Extract environment variables into package
+
+  package envvars
+
+  var (
+    SecretToken = os.Getenv("SECRET_TOKEN")
+    SecretKey   = os.Getenv("SECRET_KEY")
+    Hostname    = os.Getenv("HOSTNAME")
+    // more variables 
+  )
+
+* Environment Variables
+
+Perform checks, logic in envvars pkg 
+
+_envvars.go:_
+
+  func CheckSecretToken() {
+    if SecretToken == "" {
+      // log error
+    }
+  }
+
+Called in the inits of files compiled to binaries (`package`main`)
+
+Use `init()` to set default values 
+
+  // envvars.go
+  func init() {
+    if Email == "" {
+      Email == "email@example.com"
+    }
+  }
+
+* Environment Variables
+
+`init`function`
+
+- `init` is called after all the variable declarations in the package have evaluated their initializers
+- Commonly used to verify or repair correctness of the program state before real execution begins.
+
+.link https://golang.org/doc/effective_go.html#init
+
+* Environment Variables
+
+Access environment variables from the package
+
+  import ".../envvars"
+
+  secretToken := envvars.SecretToken
+
+Check that environment variable is set 
+
+  envvars.CheckSecretToken() 
+
+* Environment Variables
+
+Change environment variable easily in tests
+
+_test.go:_
+
+  envvars.Hostname = "testhost.com"
+
+Use `defer` to restore original state
+
+  prev := envvars.HostHostname
+  envvars.Hostname = "testhost.com"
+  defer func() { envvars.HostHostname = prev }()
+
+More on `defer`: [[http://blog.golang.org/defer-panic-and-recover]]
+
+* Environment Variables
+
+Advantages:
+
+- Easier to track environment variables (all in one location)
+- Logic relating to environment variables can be handled in the same location
+- Cleaner code
+- Easier to change in tests
+
+* Tests
+
+* Tests
+
+- Functions are first-class
+- Anonymous functions assignable to variable
+
+.link https://blog.golang.org/first-class-functions-in-go-and-new-go
+
+--
+
+- External APIs
+- Stub API return values
+
+* Tests
+
+  func fetchUsername() (string, error) {
+    // fetch username 
+    return s, err
+  }
+
+_user.go_
+
+  var fetchUsername = func() (string, error) {
+    // fetch username 
+    return s, err
+  }
+
+Stub fake value in test
+
+_user___test.go_
+
+  var mockUsername = func() (string, error) {
+    return "fake user", nil 
+  }
+
+  user.fetchUsername = mockUsername
+
+* Tests (demo)
+
+.play code/test.go /BEGIN/,/END/
+
+* Tests (interface approach)
+
+Stub return values with interface, method
+
+.play code/interface_test.go /BEGIN/,/END/
+
+.link https://gobyexample.com/interfaces
+
+* Tests
+
+Comparison:
+
+- *Swapping*functions*: useful when you only have a single function
+- *Interfaces*: when you have multiple methods that need to be changed for tests
+
+--
+
+- Useful if you're dealing with external APIs
+- Easily stub API return values
+
+* Error Handling
+
+* Error Handling
+
+- Functions are first-class
+- Pass functions as arguments
+- Anonymous functions can be returned as value
+
+--
+
+- Abstract custom error loggers
+
+* Error Handling
+
+Custom error logger (Logger: [[https://github.com/Sirupsen/logrus]])
+
+  func mailErrorLogger() func(error) {
+    return func(err error) {
+      logrus.Warnf("Failed to send mail: %v", err)
+    }
+  }
+
+Assign to `errHandler`; Pass `errHandler` (anon func) as argument
+
+  errHandler := mailErrorLogger()
+  DoSomething(“”, errHandler)
+
+error logger gets called from another package
+
+  func DoSomething(name string, errHandler func(error) {
+    if err := doAnotherThing(); err != nil {
+      errHandler(err)
+    }
+  }
+
+* Error Handling (demo)
+
+.play code/error_handling.go /BEGIN/,/END/
+
+* Error Handling
+
+- Declare error logger once
+- Separate implementation logic
+- Pass logic around
+
+  errHandler := mailErrorLogger()
+  DoSomethingElse(“”, errHandler) 
+
+* Hashing Error Messages
+
+* Hashing Error Messages
+
+- Hash error messages if not http error
+- Display hash to user without revealing implementation details 
+- `sha1` package 
+
+* Hashing Error Messages
+
+Check if it is an http error
+
+  func (s *Server) HandleError(w http.ResponseWriter, r *http.Request, err error) {
+    e, ok := err.(*httperror.Error)
+    if !ok {
+      e = s.serverError(err).(*httperror.Error)
+    }
+  }
+
+`httperror` a package we wrote to handle http errors
+Transform error into http error; Hash the error and log it
+
+  // called when not http error
+  func (s *Server) serverError(err error) error {
+    errMsg := err.Error()
+    errHash := fmt.Sprintf("%x", sha1.Sum([]byte(errMsg)))
+    e := httperror.New(http.StatusInternalServerError, "internal_server_error", "", errHash)
+    logrus.Error(errHash, errMsg)
+    return e
+  }
+
+* Hashing Error Messages
+
+- Not very difficult to implement  
+- `sha1` package from Go's standard library
+
+* Closing
+
+* Go Features 
+
+- Go features enable the programmer to perform powerful abstractions
+- Effective in production code
+- Readable code, with separated logic
+- Go's package ecosystem underly its approach to modularity and code reusability
+- Go standard library offers many useful tools
