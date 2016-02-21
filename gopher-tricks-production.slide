@@ -105,7 +105,7 @@ Use `init()` to set default values
   // envvars.go
   func init() {
     if Email == "" {
-      Email == "email@example.com"
+      Email = "email@example.com"
     }
   }
 
@@ -140,9 +140,9 @@ _test.go:_
 
 Use `defer` to restore original state
 
-  prev := envvars.HostHostname
+  prev := envvars.Hostname
   envvars.Hostname = "testhost.com"
-  defer func() { envvars.HostHostname = prev }()
+  defer func() { envvars.Hostname = prev }()
 
 More on `defer`: [[http://blog.golang.org/defer-panic-and-recover]]
 
